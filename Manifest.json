@@ -1,0 +1,15 @@
+{
+"name": "智能庫存系統",
+"short_name": "庫存管理",
+"start_url": "./index.html",
+"display": "standalone",
+"background_color": "#f8fafc",
+"theme_color": "#2563eb",
+"icons": [
+{
+"src": "https://cdn-icons-png.flaticon.com/512/2875/2875878.png",
+"sizes": "512x512",
+"type": "image/png"
+}
+ ]
+}
