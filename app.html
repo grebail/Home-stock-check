@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>庫存管理v1.7 - 條碼精準掃描版</title>
+  
+  <style>
+    :root { --blue: #2563eb; --green: #16a34a; --red: #ef4444; --orange: #f59e0b; --bg: #f8fafc; --border: #cbd5e1; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); margin: 0; padding: 10px; color: #1e293b; -webkit-tap-highlight-color: transparent; }
+    
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .header h1 { font-size: 20px; margin: 0; color: var(--blue); }
+    .btn-export { background: #e2e8f0; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; }
+    
+    .toolbar { background: white; padding: 12px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .btn { flex: 1; min-width: 110px; padding: 12px; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; color: white; cursor: pointer; text-align: center; }
+    .btn-blue { background: var(--blue); }
+    .btn-green { background: var(--green); }
+    .btn-orange { background: var(--orange); }
+    
+    .status-bar { width: 100%; font-size: 13px; padding: 8px; border-radius: 4px; background: #fffbeb; color: #b45309; }
+    
+    .table-container { overflow-x: auto; background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); -webkit-overflow-scrolling: touch; }
+    table { width: 100%; border-collapse: collapse; min-width: 1350px; }
+    th { background: #f1f5f9; padding: 12px 8px; text-align: left; border-bottom: 2px solid var(--border); font-size: 14px; white-space: nowrap; }
+    td { border-bottom: 1px solid var(--border); padding: 0; }
+    
+    .cell { width: 100%; box-sizing: border-box; border: none; background: transparent; padding: 14px 8px; font-size: 16px; color: #0f172a; outline: none; }
+    .cell:focus { background: #eff6ff; box-shadow: inset 0 0 0 2px var(--blue); }
+    
+    .thumb { width: 45px; height: 45px; object-fit: cover; border-radius: 4px; display: block; margin: 5px auto; background: #eee; border: 1px solid #ddd; cursor: pointer; }
+    .btn-del { background: #fee2e2; color: var(--red); border: 1px solid #fecaca; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 90%; margin: 5px auto; display: block; }
+
+    /* Modal 樣式 */
+    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.85); backdrop-filter: blur(3px); }
+    .modal-content { display: block; max-width: 90%; max-height: 85vh; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border-radius: 8px; }
+    .close-btn { position: absolute; top: 15px; right: 25px; color: white; font-size: 40px; font-weight: bold; cursor: pointer; }
+    
+    .scanner-box { background: white; padding: 15px; border-radius: 8px; width: 90%; max-width: 400px; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center;}
+    .close-scanner { position: absolute; top: 5px; right: 15px; font-size: 28px; cursor: pointer; color: #333; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>📦 家用庫存管理 </h1>
+    <button class="btn-export" onclick="exportData()">💾 備份</button>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn btn-blue" onclick="addRow()">➕ 手動新增</button>
+    
+    <!-- 終極武器：條碼掃描 -->
+    <button class="btn btn-orange" onclick="startBarcodeScanner()">🔍 掃描條碼</button>
+    
+    <!-- 保留原本的拍照（用於沒有條碼的物品，如桌子、椅子） -->
+    <label class="btn btn-green">
+      📸 拍無條碼物品
+      <input type="file" accept="image/*" class="hidden" style="display:none;" onchange="handleUpload(event)">
+    </label>
+    
+    <div id="ai-status" class="status-bar">
+      💡 提示：含有包裝的日用品請優先使用「🔍 掃描條碼」。
+    </div>
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:65px; text-align:center;">圖片</th>
+          <th style="width:100px;">品牌</th>
+          <th style="width:140px;">產品名稱</th>
+          <th style="width:100px;">類別</th>
+          <th style="width:120px;">購買平台</th>
+          <th style="width:70px;">數量</th>
+          <th style="width:80px;">總價</th>
+          <th style="width:80px;">單價</th>
+          <th style="width:130px;">購買日期</th>
+          <th style="width:130px;">過期日期</th>
+          <th style="width:130px;">開始使用</th>
+          <th style="width:130px;">用完日期</th>
+          <th style="width:65px; text-align:center;">操作</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- 圖片放大 Modal -->
+  <div id="image-modal" class="modal" onclick="closeModal(event)">
+    <span class="close-btn" onclick="closeModal(event)">&times;</span>
+    <img class="modal-content" id="modal-img">
+  </div>
+
+  <!-- 條碼掃描器 Modal -->
+  <div id="scanner-modal" class="modal">
+    <div class="scanner-box">
+      <span class="close-scanner" onclick="closeScanner()">&times;</span>
+      <h3 style="margin-top:0; color:#b45309;">請將條碼對準鏡頭</h3>
+      <div id="reader" style="width:100%; min-height: 250px; background:#000;"></div>
+    </div>
+  </div>
+
+  <script>
+    let db = [];
+    const STORE_KEY = 'inventoryDB_compressed'; 
+
+    // 保留原本的形狀辨識字典 (用於沒有條碼的物品)
+    const dict = { "desk": "書桌", "chair": "椅子", "notebook": "筆記本(或筆電)" }; 
+
+    function initApp() {
+      try {
+        const saved = localStorage.getItem(STORE_KEY);
+        if (saved) db = JSON.parse(saved);
+      } catch(e) {}
+      if (db.length === 0) addRow();
+      else render();
+    }
+
+    function addRow(imgSrc = "", brandStr = "", nameStr = "", typeStr = "") {
+      const today = new Date().toISOString().split('T')[0];
+      db.unshift({ 
+        id: Date.now(), image: imgSrc, brand: brandStr, name: nameStr, type: typeStr, platform: "",
+        qty: "1", price: "0", unitPrice: "0", 
+        date: today, expiryDate: "", startDate: "", finishDate: "" 
+      });
+      if(save()) render();
+    }
+
+    function render() {
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = db.map((item, i) => `
+        <tr>
+          <td style="text-align:center;">
+            ${item.image ? `<img src="${item.image}" class="thumb" onclick="openModal('${item.image}')">` : '<span style="font-size:12px;color:#94a3b8;">無圖</span>'}
+          </td>
+          <td><input type="text" class="cell" placeholder="品牌..." value="${item.brand || ''}" onchange="update(${i}, 'brand', this.value)"></td>
+          <td><input type="text" class="cell" placeholder="輸入名稱..." value="${item.name || ''}" onchange="update(${i}, 'name', this.value)"></td>
+          <td><input type="text" class="cell" placeholder="類別..." value="${item.type || ''}" onchange="update(${i}, 'type', this.value)"></td>
+          <td><input type="text" class="cell" placeholder="平台..." value="${item.platform || ''}" onchange="update(${i}, 'platform', this.value)"></td>
+          <td><input type="number" class="cell" value="${item.qty || '1'}" onchange="update(${i}, 'qty', this.value)"></td>
+          <td><input type="number" class="cell" value="${item.price || '0'}" onchange="update(${i}, 'price', this.value)"></td>
+          <td><input type="number" class="cell" value="${item.unitPrice || '0'}" onchange="update(${i}, 'unitPrice', this.value)"></td>
+          <td><input type="date" class="cell" value="${item.date || ''}" onchange="update(${i}, 'date', this.value)"></td>
+          <td><input type="date" class="cell" value="${item.expiryDate || ''}" onchange="update(${i}, 'expiryDate', this.value)"></td>
+          <td><input type="date" class="cell" value="${item.startDate || ''}" onchange="update(${i}, 'startDate', this.value)"></td>
+          <td><input type="date" class="cell" value="${item.finishDate || ''}" onchange="update(${i}, 'finishDate', this.value)"></td>
+          <td><button class="btn-del" onclick="del(${i})">刪除</button></td>
+        </tr>
+      `).join('');
+    }
+
+    function update(index, key, val) { db[index][key] = val; save(); }
+    function del(index) { if(confirm("確定刪除？")) { db.splice(index, 1); save(); render(); } }
+    function save() {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); return true; } 
+      catch(e) { alert("⚠️ 儲存失敗！空間已滿。"); return false; }
+    }
+
+    function exportData() {
+      const str = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(db));
+      const a = document.createElement('a'); a.href = str; a.download = "inventory_backup.json"; a.click();
+    }
+
+    function openModal(imgSrc) {
+      document.getElementById('image-modal').style.display = "block";
+      document.getElementById('modal-img').src = imgSrc;
+    }
+    function closeModal(event) {
+      if(event.target.id === 'image-modal' || event.target.className === 'close-btn') {
+        document.getElementById('image-modal').style.display = "none";
+      }
+    }
+
+    // --- 核心升級：條碼掃描與全球資料庫串接 ---
+    let html5QrCode = null;
+
+    function startBarcodeScanner() {
+      document.getElementById('scanner-modal').style.display = 'block';
+      if (!html5QrCode) {
+        html5QrCode = new Html5Qrcode("reader");
+      }
+      
+      const config = { fps: 10, qrbox: { width: 250, height: 150 } };
+      
+      // 使用手機後置鏡頭 (environment)
+      html5QrCode.start({ facingMode: "environment" }, config, async (decodedText) => {
+        // 成功掃描到條碼
+        html5QrCode.stop();
+        document.getElementById('scanner-modal').style.display = 'none';
+        const statusEl = document.getElementById('ai-status');
+        statusEl.innerText = `⏳ 讀取條碼 (${decodedText}) 成功，正在查詢全球商品資料庫...`;
+
+        try {
+          // 嘗試 API 1: Open Food Facts (食品、日用品最強資料庫，完全免費免 API Key)
+          let res1 = await fetch(`https://world.openfoodfacts.org/api/v0/product/${decodedText}.json`);
+          let data1 = await res1.json();
+          
+          if (data1.status === 1 && data1.product) {
+            let p = data1.product;
+            let name = p.product_name || p.generic_name || "";
+            let brand = p.brands || "";
+            let img = p.image_front_url || p.image_url || "";
+            if(name) {
+               addRow(img, brand, name, "條碼商品");
+               statusEl.innerText = `✅ 自動帶入成功：${brand} ${name}`;
+               return;
+            }
+          }
+
+          // 嘗試 API 2: UPCitemDB 備用 (3C、綜合型商品，完全免費免 API Key)
+          let res2 = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${decodedText}`);
+          let data2 = await res2.json();
+          
+          if (data2.code === "OK" && data2.items && data2.items.length > 0) {
+            let item = data2.items[0];
+            let name = item.title || "";
+            let brand = item.brand || "";
+            let img = (item.images && item.images.length > 0) ? item.images[0] : "";
+            addRow(img, brand, name, "條碼商品");
+            statusEl.innerText = `✅ 自動帶入成功：${name}`;
+            return;
+          }
+
+          // 如果兩個資料庫都沒建檔，至少將條碼自動填入名稱，省去打字的麻煩
+          addRow("", "", decodedText, "未知條碼商品");
+          statusEl.innerText = `⚠️ 查無此條碼，已將條碼數字填入表格，請手動輸入商品名稱。`;
+
+        } catch (err) {
+          console.error(err);
+          addRow("", "", decodedText, "條碼商品");
+          statusEl.innerText = `❌ 網路查詢失敗，已帶入條碼數字。`;
+        }
+      }, (errorMessage) => {
+        // 忽略掃描過程中的尋找錯誤
+      }).catch((err) => {
+        alert("無法啟動相機！請確認您的瀏覽器有開啟相機權限。");
+        document.getElementById('scanner-modal').style.display = 'none';
+      });
+    }
+
+    function closeScanner() {
+      if (html5QrCode) {
+        html5QrCode.stop().catch(e => console.log("關閉相機錯誤"));
+      }
+      document.getElementById('scanner-modal').style.display = 'none';
+    }
+
+
+    // --- 原本的普通拍照壓縮 (保留給無條碼物品) ---
+    function compressImage(base64Str, callback) {
+      const img = new Image();
+      img.src = base64Str;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let w = img.width, h = img.height;
+        if (w > 300) { h = Math.round((h * 300) / w); w = 300; }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        callback(canvas.toDataURL('image/jpeg', 0.7)); 
+      };
+      img.onerror = () => callback(base64Str); 
+    }
+
+    function handleUpload(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      e.target.value = ''; 
+      
+      document.getElementById('ai-status').innerText = "⏳ 正在處理圖片...";
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        compressImage(ev.target.result, (compressedBase64) => {
+           addRow(compressedBase64, "", "", "");
+           document.getElementById('ai-status').innerText = "✅ 照片已加入，請手動輸入名稱。";
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+
+    initApp();
+  </script>
+
+  <!-- 引入強大的開源條碼掃描引擎 (完全免費，純前端執行) -->
+  <script src="https://unpkg.com/html5-qrcode" defer></script>
+
+</body>
+</html>
