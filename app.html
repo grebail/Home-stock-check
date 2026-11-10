@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>庫存管理v1.11 - 類別選單版</title>
+  
+  <style>
+    :root { --blue: #2563eb; --green: #16a34a; --red: #ef4444; --orange: #f59e0b; --bg: #f8fafc; --border: #cbd5e1; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); margin: 0; padding: 10px; color: #1e293b; -webkit-tap-highlight-color: transparent; }
+    
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .header h1 { font-size: 20px; margin: 0; color: var(--blue); font-weight: bold; }
+    .btn-export { background: #e2e8f0; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; }
+    
+    .toolbar { background: white; padding: 12px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .btn { flex: 1; min-width: 110px; padding: 12px; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; color: white; cursor: pointer; text-align: center; }
+    .btn-blue { background: var(--blue); }
+    .btn-green { background: var(--green); }
+    .btn-orange { background: var(--orange); }
+    
+    .status-bar { width: 100%; font-size: 13px; padding: 8px; border-radius: 4px; background: #fffbeb; color: #b45309; }
+    
+    .table-container { overflow-x: auto; background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); -webkit-overflow-scrolling: touch; }
+    table { width: 100%; border-collapse: collapse; min-width: 1350px; }
+    th { background: #f1f5f9; padding: 12px 8px; text-align: left; border-bottom: 2px solid var(--border); font-size: 14px; white-space: nowrap; }
+    td { border-bottom: 1px solid var(--border); padding: 0; }
+    
+    .cell { width: 100%; box-sizing: border-box; border: none; background: transparent; padding: 14px 8px; font-size: 16px; color: #0f172a; outline: none; }
+    .cell:focus { background: #eff6ff; box-shadow: inset 0 0 0 2px var(--blue); }
+    
+    /* 針對 select 下拉選單做外觀優化 */
+    select.cell { cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 8px center; background-size: 1em; padding-right: 30px; }
+    
+    .thumb { width: 45px; height: 45px; object-fit: cover; border-radius: 4px; display: block; margin: 5px auto; background: #eee; border: 1px solid #ddd; cursor: pointer; }
+    .btn-del { background: #fee2e2; color: var(--red); border: 1px solid #fecaca; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 90%; margin: 5px auto; display: block; }
+    
+    .barcode-badge { font-size: 10px; background: #e2e8f0; color: #475569; padding: 2px 4px; border-radius: 4px; display: inline-block; margin-top: 4px; }
+    .btn-add-img { font-size: 11px; background: #e2e8f0; color: #334155; padding: 8px 4px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 50px; margin: 0 auto; display: block; text-align: center; }
+    .btn-add-img:active { background: #cbd5e1; }
+    .btn-change-img { font-size: 10px; color: var(--blue); cursor: pointer; margin-top: 4px; display: block; text-align: center; }
+
+    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.85); backdrop-filter: blur(3px); }
+    .modal-content { display: block; max-width: 90%; max-height: 85vh; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border-radius: 8px; }
+    .close-btn { position: absolute; top: 15px; right: 25px; color: white; font-size: 40px; font-weight: bold; cursor: pointer; }
+    
+    .scanner-box { background: white; padding: 15px; border-radius: 8px; width: 90%; max-width: 400px; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center;}
+    .close-scanner { position: absolute; top: 5px; right: 15px; font-size: 28px; cursor: pointer; color: #333; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+  <input type="file" id="row-img-upload" accept="image/*" style="display:none;" onchange="handleRowImageUpload(event)">
+
+  <div class="header">
+    <h1>📦 庫存管理 (分類選單版)</h1>
+    <button class="btn-export" onclick="exportData()">💾 備份</button>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn btn-blue" onclick="addRow()">➕ 手動新增</button>
+    <button class="btn btn-orange" onclick="startBarcodeScanner()">🔍 掃描條碼</button>
+    <label class="btn btn-green">
+      📸 拍無條碼物品
+      <input type="file" accept="image/*" class="hidden" style="display:none;" onchange="handleUpload(event)">
+    </label>
+    <div id="ai-status" class="status-bar">
+      💡 類別欄位已升級為下拉選單，點擊即可快速選擇。
+    </div>
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:75px; text-align:center;">圖片</th>
+          <th style="width:100px;">品牌</th>
+          <th style="width:160px;">產品名稱</th>
+          <th style="width:140px;">類別</th>
+          <th style="width:120px;">購買平台</th>
+          <th style="width:70px;">數量</th>
+          <th style="width:80px;">總價</th>
+          <th style="width:80px;">單價</th>
+          <th style="width:130px;">購買日期</th>
+          <th style="width:130px;">過期日期</th>
+          <th style="width:130px;">開始使用</th>
+          <th style="width:130px;">用完日期</th>
+          <th style="width:65px; text-align:center;">操作</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <div id="image-modal" class="modal" onclick="closeModal(event)">
+    <span class="close-btn" onclick="closeModal(event)">&times;</span>
+    <img class="modal-content" id="modal-img">
+  </div>
+
+  <div id="scanner-modal" class="modal">
+    <div class="scanner-box">
+      <span class="close-scanner" onclick="closeScanner()">&times;</span>
+      <h3 style="margin-top:0; color:#b45309;">請將條碼對準鏡頭</h3>
+      <div id="reader" style="width:100%; min-height: 250px; background:#000;"></div>
+    </div>
+  </div>
+
+  <script>
+    let db = [];
+    const STORE_KEY = 'inventoryDB_compressed'; 
+    const DICT_KEY = 'custom_barcode_dict';
+    let barcodeMemory = {};
+    
+    let currentRowForImage = -1;
+
+    // 自訂的類別選項清單
+    const CATEGORIES = [
+      "衣物清潔", "廚房器皿清潔", "家居清潔", "廚房消耗", 
+      "個人衛生", "紙製品", "環境調節", "食物", "飲品"
+    ];
+
+    function initApp() {
+      try {
+        const saved = localStorage.getItem(STORE_KEY);
+        if (saved) db = JSON.parse(saved);
+        
+        const savedDict = localStorage.getItem(DICT_KEY);
+        if (savedDict) barcodeMemory = JSON.parse(savedDict);
+      } catch(e) {}
+      
+      if (db.length === 0) addRow();
+      else render();
+    }
+
+    function addRow(imgSrc = "", brandStr = "", nameStr = "", typeStr = "", barcodeStr = "") {
+      const today = new Date().toISOString().split('T')[0];
+      db.unshift({ 
+        id: Date.now(), image: imgSrc, brand: brandStr, name: nameStr, type: typeStr, platform: "",
+        qty: "1", price: "0", unitPrice: "0", 
+        date: today, expiryDate: "", startDate: "", finishDate: "", barcode: barcodeStr
+      });
+      if(save()) render();
+    }
+
+    function render() {
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = db.map((item, i) => {
+        // 判斷目前的類別是否在選單列表中，如果不在（舊資料），就自動把它加為一個隱藏選項保護起來
+        const isUnknownType = item.type && !CATEGORIES.includes(item.type);
+        
+        return `
+        <tr>
+          <td style="text-align:center; padding: 5px;">
+            ${item.image 
+              ? `<img src="${item.image}" class="thumb" onclick="openModal('${item.image}')">
+                 <div class="btn-change-img" onclick="triggerRowImgUpload(${i})">🔄 更換</div>` 
+              : `<div class="btn-add-img" onclick="triggerRowImgUpload(${i})">📷 加圖</div>`
+            }
+          </td>
+          <td><input type="text" class="cell" placeholder="品牌..." value="${item.brand || ''}" onchange="update(${i}, 'brand', this.value)"></td>
+          <td>
+            <input type="text" class="cell" style="padding-bottom: 2px;" placeholder="輸入名稱..." value="${item.name || ''}" onchange="update(${i}, 'name', this.value)">
+            ${item.barcode ? `<div class="barcode-badge">🏷️ ${item.barcode}</div>` : ''}
+          </td>
+          
+          <!-- 升級為 Select 下拉選單 -->
+          <td>
+            <select class="cell" onchange="update(${i}, 'type', this.value)">
+              <option value="" ${!item.type ? 'selected' : ''}>請選擇...</option>
+              ${CATEGORIES.map(cat => `<option value="${cat}" ${item.type === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+              ${isUnknownType ? `<option value="${item.type}" selected>${item.type} (舊資料)</option>` : ''}
+            </select>
+          </td>
+
+          <td><input type="text" class="cell" placeholder="平台..." value="${item.platform || ''}" onchange="update(${i}, 'platform', this.value)"></td>
+          <td><input type="number" class="cell" value="${item.qty || '1'}" onchange="update(${i}, 'qty', this.value)"></td>
+          <td><input type="number" class="cell" value="${item.price || '0'}" onchange="update(${i}, 'price', this.value)"></td>
+          <td><input type="number" class="cell" value="${item.unitPrice || '0'}" onchange="update(${i}, 'unitPrice', this.value)"></td>
+          <td><input type="date" class="cell" value="${item.date || ''}" onchange="update(${i}, 'date', this.value)"></td>
+          <td><input type="date" class="cell" value="${item.expiryDate || ''}" onchange="update(${i}, 'expiryDate', this.value)"></td>
+          <td><input type="date" class="cell" value="${item.startDate || ''}" onchange="update(${i}, 'startDate', this.value)"></td>
+          <td><input type="date" class="cell" value="${item.finishDate || ''}" onchange="update(${i}, 'finishDate', this.value)"></td>
+          <td><button class="btn-del" onclick="del(${i})">刪除</button></td>
+        </tr>
+      `}).join('');
+    }
+
+    function update(index, key, val) { 
+      db[index][key] = val; 
+      save(); 
+
+      if (db[index].barcode && (key === 'name' || key === 'brand' || key === 'type')) {
+        const bc = db[index].barcode;
+        if(!barcodeMemory[bc]) barcodeMemory[bc] = {};
+        barcodeMemory[bc][key] = val;
+        localStorage.setItem(DICT_KEY, JSON.stringify(barcodeMemory));
+        document.getElementById('ai-status').innerText = `🧠 系統已成功學習綁定條碼 [${bc}]！`;
+        render(); 
+      }
+    }
+
+    function del(index) { if(confirm("確定刪除？")) { db.splice(index, 1); save(); render(); } }
+    
+    function save() {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); return true; } 
+      catch(e) { alert("⚠️ 儲存失敗！容量可能已滿。"); return false; }
+    }
+
+    function exportData() {
+      const str = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(db));
+      const a = document.createElement('a'); a.href = str; a.download = "inventory_backup.json"; a.click();
+    }
+
+    function openModal(imgSrc) {
+      document.getElementById('image-modal').style.display = "block";
+      document.getElementById('modal-img').src = imgSrc;
+    }
+    function closeModal(event) {
+      if(event.target.id === 'image-modal' || event.target.className === 'close-btn') {
+        document.getElementById('image-modal').style.display = "none";
+      }
+    }
+
+    function triggerRowImgUpload(index) {
+      currentRowForImage = index;
+      document.getElementById('row-img-upload').click();
+    }
+
+    function handleRowImageUpload(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      e.target.value = ''; 
+      
+      document.getElementById('ai-status').innerText = "⏳ 正在壓縮並更新圖片...";
+      
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        compressImage(ev.target.result, (compressedBase64) => {
+           if(currentRowForImage !== -1) {
+             db[currentRowForImage].image = compressedBase64;
+             save();
+             render();
+             document.getElementById('ai-status').innerText = "✅ 圖片已成功加入商品中！";
+             currentRowForImage = -1;
+           }
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+
+    let html5QrCode = null;
+
+    function startBarcodeScanner() {
+      document.getElementById('scanner-modal').style.display = 'block';
+      if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+      
+      const config = { fps: 10, qrbox: { width: 250, height: 150 } };
+      
+      html5QrCode.start({ facingMode: "environment" }, config, async (decodedText) => {
+        html5QrCode.stop();
+        document.getElementById('scanner-modal').style.display = 'none';
+        
+        const statusEl = document.getElementById('ai-status');
+
+        if (barcodeMemory[decodedText]) {
+          const known = barcodeMemory[decodedText];
+          addRow("", known.brand || "", known.name || "", known.type || "", decodedText);
+          statusEl.innerText = `⚡ 記憶庫自動帶入：${known.name || '已知商品'}。請點擊「📷 加圖」補上照片。`;
+          return; 
+        }
+
+        statusEl.innerText = `⏳ 查無本地記憶，正在查詢全球資料庫...`;
+        let finalName = ""; let finalBrand = ""; let finalImg = "";
+
+        try {
+          let res1 = await fetch(`https://world.openfoodfacts.org/api/v0/product/${decodedText}.json`);
+          if (res1.ok) {
+            let data1 = await res1.json();
+            if (data1.status === 1 && data1.product) {
+              finalName = data1.product.product_name || data1.product.generic_name || "";
+              finalBrand = data1.product.brands || "";
+              finalImg = data1.product.image_front_url || data1.product.image_url || "";
+            }
+          }
+        } catch (e) { console.warn(e); }
+
+        if (!finalName) {
+          try {
+            let targetUrl = encodeURIComponent(`https://api.upcitemdb.com/prod/trial/lookup?upc=${decodedText}`);
+            let res2 = await fetch(`https://api.allorigins.win/get?url=${targetUrl}`);
+            if (res2.ok) {
+              let proxyData = await res2.json();
+              let data2 = JSON.parse(proxyData.contents);
+              if (data2.code === "OK" && data2.items && data2.items.length > 0) {
+                finalName = data2.items[0].title || "";
+                finalBrand = data2.items[0].brand || "";
+                finalImg = (data2.items[0].images && data2.items[0].images.length > 0) ? data2.items[0].images[0] : "";
+              }
+            }
+          } catch (e) { console.warn(e); }
+        }
+
+        if (finalName) {
+          addRow(finalImg, finalBrand, finalName, "", decodedText); // 預設類別留空，讓用戶從選單挑
+          if(!finalImg) {
+            statusEl.innerText = `✅ 帶入成功：${finalName}。請選擇類別並補上照片。`;
+          } else {
+            statusEl.innerText = `✅ 全球資料庫帶入成功：${finalName}`;
+          }
+        } else {
+          addRow("", "", "", "", decodedText);
+          statusEl.innerText = `⚠️ 查無此物。請手動輸入名稱並選擇類別！`;
+        }
+
+      }, (errorMessage) => {
+      }).catch((err) => {
+        alert("無法啟動相機！請允許權限。");
+        document.getElementById('scanner-modal').style.display = 'none';
+      });
+    }
+
+    function closeScanner() {
+      if (html5QrCode) html5QrCode.stop().catch(e => console.log(e));
+      document.getElementById('scanner-modal').style.display = 'none';
+    }
+
+    function compressImage(base64Str, callback) {
+      const img = new Image();
+      img.src = base64Str;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let w = img.width, h = img.height;
+        if (w > 300) { h = Math.round((h * 300) / w); w = 300; }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        callback(canvas.toDataURL('image/jpeg', 0.7)); 
+      };
+      img.onerror = () => callback(base64Str); 
+    }
+
+    function handleUpload(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      e.target.value = ''; 
+      document.getElementById('ai-status').innerText = "⏳ 正在處理圖片...";
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        compressImage(ev.target.result, (compressedBase64) => {
+           addRow(compressedBase64, "", "", "");
+           document.getElementById('ai-status').innerText = "✅ 照片已加入，請手動輸入名稱與類別。";
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+
+    initApp();
+  </script>
+
+  <script src="https://unpkg.com/html5-qrcode" defer></script>
+</body>
+</html>
