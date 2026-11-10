@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>庫存管理 - 高精度 AI 擴充版</title>
+  
+  <style>
+    :root { --blue: #2563eb; --green: #16a34a; --red: #ef4444; --bg: #f8fafc; --border: #cbd5e1; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); margin: 0; padding: 10px; color: #1e293b; -webkit-tap-highlight-color: transparent; }
+    
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .header h1 { font-size: 20px; margin: 0; color: var(--blue); }
+    .btn-export { background: #e2e8f0; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; }
+    
+    .toolbar { background: white; padding: 12px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .btn { flex: 1; min-width: 130px; padding: 12px; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; color: white; cursor: pointer; text-align: center; }
+    .btn-blue { background: var(--blue); }
+    .btn-green { background: var(--green); }
+    
+    .status-bar { width: 100%; font-size: 13px; padding: 8px; border-radius: 4px; background: #fffbeb; color: #b45309; }
+    
+    .table-container { overflow-x: auto; background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); -webkit-overflow-scrolling: touch; }
+    
+    table { width: 100%; border-collapse: collapse; min-width: 1350px; }
+    th { background: #f1f5f9; padding: 12px 8px; text-align: left; border-bottom: 2px solid var(--border); font-size: 14px; white-space: nowrap; }
+    td { border-bottom: 1px solid var(--border); padding: 0; }
+    
+    .cell { 
+      width: 100%; box-sizing: border-box; border: none; background: transparent; 
+      padding: 14px 8px; font-size: 16px; color: #0f172a; outline: none;
+    }
+    .cell:focus { background: #eff6ff; box-shadow: inset 0 0 0 2px var(--blue); }
+    
+    .thumb { width: 45px; height: 45px; object-fit: cover; border-radius: 4px; display: block; margin: 5px auto; background: #eee; border: 1px solid #ddd; cursor: pointer; transition: transform 0.2s; }
+    .thumb:active { transform: scale(0.95); }
+    
+    .btn-del { background: #fee2e2; color: var(--red); border: 1px solid #fecaca; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 90%; margin: 5px auto; display: block; }
+
+    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.85); backdrop-filter: blur(3px); }
+    .modal-content { display: block; max-width: 90%; max-height: 85vh; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+    .close-btn { position: absolute; top: 15px; right: 25px; color: #f1f1f1; font-size: 40px; font-weight: bold; cursor: pointer; z-index: 1001; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>📦 家用庫存管理 </h1>
+    <button class="btn-export" onclick="exportData()">💾 備份</button>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn btn-blue" onclick="addRow()">➕ 手動新增</button>
+    <label class="btn btn-green">
+      📸 上傳照片
+      <input type="file" accept="image/*" class="hidden" style="display:none;" onchange="handleUpload(event)">
+    </label>
+    <div id="ai-status" class="status-bar">
+      準備就緒。點擊上方按鈕，或直接修改下方表格...
+    </div>
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:65px; text-align:center;">圖片</th>
+          <th style="width:100px;">品牌</th>
+          <th style="width:140px;">產品名稱</th>
+          <th style="width:100px;">類別</th>
+          <th style="width:120px;">購買平台</th>
+          <th style="width:70px;">數量</th>
+          <th style="width:80px;">總價</th>
+          <th style="width:80px;">單價</th>
+          <th style="width:130px;">購買日期</th>
+          <th style="width:130px;">過期日期</th>
+          <th style="width:130px;">開始使用</th>
+          <th style="width:130px;">用完日期</th>
+          <th style="width:65px; text-align:center;">操作</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <div id="image-modal" class="modal" onclick="closeModal(event)">
+    <span class="close-btn" onclick="closeModal(event)">&times;</span>
+    <img class="modal-content" id="modal-img">
+  </div>
+
+  <script>
+    let db = [];
+    const STORE_KEY = 'inventoryDB_compressed'; 
+
+    // 擴充海量家居、文具與 3C 字典，涵蓋 MobileNet 容易辨識出的怪異標籤
+    const dict = {
+      // 飲水與容器
+      "water bottle": "水瓶", "water jug": "水壺", "pop bottle": "飲料瓶", 
+      "coffee mug": "咖啡杯", "cup": "杯子", "teapot": "茶壺", "espresso maker": "咖啡機",
+      "goblet": "高腳杯", "measuring cup": "量杯", "beer bottle": "玻璃瓶",
+      // 清潔保養與衛浴
+      "lotion": "保養品/乳液", "sunscreen": "防曬乳", "hair spray": "噴霧/定型液", 
+      "perfume": "香水", "soap dispenser": "給皂機/洗手液", "pill bottle": "藥瓶/保健品", 
+      "toilet tissue": "衛生紙", "paper towel": "廚房紙巾", "diaper": "尿布",
+      "vacuum": "吸塵器", "vacuum cleaner": "吸塵器", "broom": "掃把",
+      // 電子產品
+      "notebook": "筆記型電腦", "laptop": "筆記型電腦", "computer": "電腦",
+      "cellular telephone": "手機", "hand-held computer": "平板/手機",
+      "desktop computer": "桌上型電腦", "monitor": "螢幕", "screen": "顯示器", "television": "電視",
+      "mouse": "滑鼠", "computer mouse": "滑鼠", "keyboard": "鍵盤", "computer keyboard": "鍵盤",
+      "ipod": "隨身聽/耳機", "remote control": "遙控器",
+      // 傢俱與家飾
+      "desk": "書桌", "table": "桌子", "dining table": "餐桌", 
+      "chair": "椅子", "folding chair": "摺疊椅", "studio couch": "沙發", 
+      "wardrobe": "衣櫃", "lampshade": "檯燈", "window shade": "窗簾",
+      // 雜項
+      "carton": "紙盒", "box": "盒子", "packet": "包裝袋", "plastic bag": "塑膠袋",
+      "purse": "女用包包", "wallet": "錢包", "backpack": "背包",
+      "book": "書本", "magazine": "雜誌", "ballpoint": "原子筆", "pen": "筆",
+      "plate": "盤子", "bowl": "碗", "pot": "鍋子", "frying pan": "平底鍋"
+    };
+
+    function initApp() {
+      try {
+        const saved = localStorage.getItem(STORE_KEY);
+        if (saved) db = JSON.parse(saved);
+      } catch(e) {}
+      if (db.length === 0) addRow();
+      else render();
+    }
+
+    function addRow(imgSrc = "", name = "") {
+      const today = new Date().toISOString().split('T')[0];
+      db.unshift({ 
+        id: Date.now(), image: imgSrc, brand: "", name: name, type: "", platform: "",
+        qty: "1", price: "0", unitPrice: "0", 
+        date: today, expiryDate: "", startDate: "", finishDate: "" 
+      });
+      if(save()) render();
+    }
+
+    function render() {
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = db.map((item, i) => `
+        <tr>
+          <td style="text-align:center;">
+            ${item.image ? `<img src="${item.image}" class="thumb" onclick="openModal('${item.image}')">` : '<span style="font-size:12px;color:#94a3b8;">無圖</span>'}
+          </td>
+          <td><input type="text" class="cell" placeholder="品牌..." value="${item.brand || ''}" onchange="update(${i}, 'brand', this.value)"></td>
+          <td><input type="text" class="cell" placeholder="點擊輸入..." value="${item.name || ''}" onchange="update(${i}, 'name', this.value)"></td>
+          <td><input type="text" class="cell" placeholder="類別..." value="${item.type || ''}" onchange="update(${i}, 'type', this.value)"></td>
+          <td><input type="text" class="cell" placeholder="平台..." value="${item.platform || ''}" onchange="update(${i}, 'platform', this.value)"></td>
+          <td><input type="number" class="cell" value="${item.qty || '1'}" onchange="update(${i}, 'qty', this.value)"></td>
+          <td><input type="number" class="cell" value="${item.price || '0'}" onchange="update(${i}, 'price', this.value)"></td>
+          <td><input type="number" class="cell" value="${item.unitPrice || '0'}" onchange="update(${i}, 'unitPrice', this.value)"></td>
+          <td><input type="date" class="cell" value="${item.date || ''}" onchange="update(${i}, 'date', this.value)"></td>
+          <td><input type="date" class="cell" value="${item.expiryDate || ''}" onchange="update(${i}, 'expiryDate', this.value)"></td>
+          <td><input type="date" class="cell" value="${item.startDate || ''}" onchange="update(${i}, 'startDate', this.value)"></td>
+          <td><input type="date" class="cell" value="${item.finishDate || ''}" onchange="update(${i}, 'finishDate', this.value)"></td>
+          <td><button class="btn-del" onclick="del(${i})">刪除</button></td>
+        </tr>
+      `).join('');
+    }
+
+    function update(index, key, val) { db[index][key] = val; save(); }
+
+    function del(index) {
+      if(confirm("確定刪除？")) { db.splice(index, 1); save(); render(); }
+    }
+
+    function save() {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); return true; } 
+      catch(e) { alert("⚠️ 儲存失敗！您的庫存照片過多，空間已滿。"); return false; }
+    }
+
+    function exportData() {
+      const str = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(db));
+      const a = document.createElement('a');
+      a.href = str; a.download = "inventory_backup.json"; a.click();
+    }
+
+    function openModal(imgSrc) {
+      document.getElementById('image-modal').style.display = "block";
+      document.getElementById('modal-img').src = imgSrc;
+    }
+
+    function closeModal(event) {
+      if(event.target.id === 'image-modal' || event.target.className === 'close-btn') {
+        document.getElementById('image-modal').style.display = "none";
+      }
+    }
+
+    function compressImage(base64Str, callback) {
+      const img = new Image();
+      img.src = base64Str;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 300; let width = img.width; let height = img.height;
+        if (width > MAX_WIDTH) { height = Math.round((height * MAX_WIDTH) / width); width = MAX_WIDTH; }
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        callback(canvas.toDataURL('image/jpeg', 0.7)); 
+      };
+      img.onerror = () => callback(base64Str); 
+    }
+
+    function handleUpload(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      e.target.value = ''; 
+      
+      document.getElementById('ai-status').innerText = "⏳ 正在壓縮與分析圖片中...";
+
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        compressImage(ev.target.result, (compressedBase64) => {
+          if (window.aiReady && window.aiModel) {
+            const imgForAI = new Image();
+            imgForAI.src = compressedBase64;
+            imgForAI.onload = async () => {
+              try {
+                // 升級！獲取 Top-5 預測結果，而不只是第 1 名
+                const preds = await window.aiModel.classify(imgForAI, 5);
+                let finalName = "";
+                let fallbackName = "";
+
+                // 智能過濾演算法：掃描 Top 5，優先找尋我們字典中有的家居物品
+                for (let i = 0; i < preds.length; i++) {
+                  let rawClasses = preds[i].className.toLowerCase().split(',');
+                  for (let rawClass of rawClasses) {
+                    let cleanClass = rawClass.trim();
+                    if (i === 0) fallbackName = dict[cleanClass] || cleanClass; // 記住第一名當作備案
+                    
+                    if (dict[cleanClass]) {
+                      finalName = dict[cleanClass];
+                      break;
+                    }
+                  }
+                  if (finalName) break;
+                }
+
+                // 如果前 5 名都不在我們的家居字典裡，就退回使用第 1 名的結果
+                finalName = finalName || fallbackName;
+                
+                addRow(compressedBase64, finalName + " (AI預測)");
+                document.getElementById('ai-status').innerText = "✅ 辨識完成！準確度已提升。";
+              } catch(err) {
+                addRow(compressedBase64, "");
+                document.getElementById('ai-status').innerText = "❌ 辨識失敗，圖片已加入表格。";
+              }
+            };
+          } else {
+            addRow(compressedBase64, "");
+            document.getElementById('ai-status').innerText = "✅ 圖片已加入，請手動輸入名稱。";
+          }
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+
+    initApp();
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@latest" defer></script>
+  
+  <script>
+    window.addEventListener('load', () => {
+      setTimeout(async () => {
+        try {
+          if(typeof mobilenet !== 'undefined') {
+            window.aiModel = await mobilenet.load();
+            window.aiReady = true;
+            document.getElementById('ai-status').style.background = '#dcfce7';
+            document.getElementById('ai-status').style.color = '#166534';
+            document.getElementById('ai-status').innerText = "🤖 高精度 AI 引擎已準備完畢！";
+          }
+        } catch (e) {
+          console.warn("無網路，AI停用");
+        }
+      }, 1500); 
+    });
+  </script>
+</body>
+</html>
